@@ -2,148 +2,142 @@ package com.learning.javabase.lab.collection.map.hashMap;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * HashMap 核心原理实验室
- *
- * 学习目标：
- * 1. 理解 Hash 算法与索引计算。
- * 2. 【重点】深度观察 Hash 冲突的处理机制 (拉链法)。
- * 3. 【高阶】验证链表转红黑树 (Treeification)。
- * 4. 【高阶】验证多线程 Put 不安全 (数据丢失)。
- * 5. 【陷阱】验证 Key 的可变性导致的内存泄漏。
+ * HashMap 源码调试实验室
+ * <p>
+ * 核心目标：通过 Debug 亲眼见证 HashMap 的内部运作。
+ * <p>
+ * 【调试指南】
+ * 请根据代码中的 TODO 提示，在 JDK 源码 (java.util.HashMap) 中打上断点。
  */
 @Slf4j
 public class HashMapStudy {
 
     public static void main(String[] args) throws InterruptedException {
-        // 1. 实验：Hash 算法与索引计算
-        // testHashAndIndex();
+        // 1. 调试：链表形成 (拉链法)
+        debugChaining();
 
-        // 2. 实验：深度观察 Hash 冲突处理 (拉链法)
-        testCollisionHandling();
+        // 2. 调试：树化过程 (Treeification)
+        debugTreeification();
 
-        // 3. 实验：链表转红黑树
-        // testTreeification();
-
-        // 4. 实验：多线程并发 Put 的不安全性
-        // testThreadUnsafety();
-        
-        // 5. 实验：可变 Key 的致命陷阱
-        // testMutableKey();
+        // 3. 调试：并发冲突 (数据覆盖)
+        debugConcurrentRace();
     }
 
     /**
-     * 实验 2: 深度观察 Hash 冲突处理 (拉链法)
-     * 
-     * 场景：构造多个 hashCode 相同但 equals 不同的 Key。
-     * 验证：
-     * 1. 它们是否都在同一个 Bucket 里？
-     * 2. 后来者是放在链表头还是链表尾？(JDK 1.7 头插法 vs JDK 1.8 尾插法)
-     * 3. 如果 Key 的 equals 也相同，是覆盖还是共存？
+     * 场景 1: 调试链表形成
+     * <p>
+     * 目标：观察 putVal 方法中，如何判断 Hash 冲突并追加到链表尾部。
+     * <p>
+     * 【断点位置】
+     * 打开 java.util.HashMap，找到 putVal 方法。
+     * 1. 在 `if ((p = tab[i = (n - 1) & hash]) == null)` 处打断点 -> 观察第一次 put。
+     * 2. 在 `else { ... if ((e = p.next) == null) { ... p.next = newNode(...) } }` 处打断点 -> 观察链表追加。
      */
-    private static void testCollisionHandling() {
-        log.info(">>> 实验 2: 深度观察 Hash 冲突处理 (拉链法) <<<");
-        
-        // 1. 准备 3 个 hashCode 一样，但 equals 不一样的对象
+    private static void debugChaining() {
+        log.info(">>> 1. 准备调试：链表形成 <<<");
+        Map<AlwaysCollideKey, String> map = new HashMap<>();
+
         AlwaysCollideKey k1 = new AlwaysCollideKey("A");
         AlwaysCollideKey k2 = new AlwaysCollideKey("B");
-        AlwaysCollideKey k3 = new AlwaysCollideKey("C");
-        
-        // 2. 准备 1 个 hashCode 一样，且 equals 也一样的对象 (模拟重复 Key)
-        AlwaysCollideKey k1_duplicate = new AlwaysCollideKey("A");
 
-        Map<AlwaysCollideKey, String> map = new HashMap<>();
-        
-        // Step 1: 放入第一个
-        map.put(k1, "Value-A");
-        log.info("Put A 完成");
-        
-        // Step 2: 放入第二个 (发生碰撞)
-        map.put(k2, "Value-B");
-        log.info("Put B 完成 (Hash碰撞)");
-        
-        // Step 3: 放入第三个 (再次碰撞)
-        map.put(k3, "Value-C");
-        log.info("Put C 完成 (Hash碰撞)");
-        
-        // Step 4: 放入重复 Key (覆盖)
-        map.put(k1_duplicate, "Value-A-Updated");
-        log.info("Put A_Duplicate 完成 (覆盖)");
+        log.info("Step 1: Put A (首节点)");
+        map.put(k1, "Value-A"); // TODO: 此时 tab[i] 为 null，直接存放
 
-        // --- 验证阶段 ---
-        
-        log.info("Map Size: {}", map.size()); // 预期：3 (A, B, C)
-        log.info("Get A: {}", map.get(k1));   // 预期：Value-A-Updated
-        
-        // 【黑科技】打印链表结构
-        // 我们要亲眼看到：Bucket[1] -> A -> B -> C
-        printLinkedListStructure(map);
+        log.info("Step 2: Put B (Hash冲突 -> 链表)");
+        map.put(k2, "Value-B"); // TODO: 此时 tab[i] 不为 null，走 else 分支，追加到链表尾部
+
+        log.info("链表调试结束");
     }
-
-    // ... (其他实验方法保持不变) ...
-    private static void testHashAndIndex() {}
-    private static void testTreeification() {}
-    private static void testThreadUnsafety() {}
-    private static void testMutableKey() {}
-
-    // --- 辅助方法 ---
 
     /**
-     * 【黑科技】打印指定 Map 的内部链表结构
-     * 
-     * 这是一个非常强大的调试工具，能让你看到 HashMap 内部的真实样子。
+     * 场景 2: 调试树化过程
+     * <p>
+     * 目标：观察 treeifyBin 方法的触发，以及链表 Node 变为 TreeNode 的过程。
+     * <p>
+     * 【断点位置】
+     * 打开 java.util.HashMap。
+     * 1. 在 `putVal` 方法的 `if (binCount >= TREEIFY_THRESHOLD - 1) treeifyBin(tab, hash);` 处打断点。
+     * 2. 在 `treeifyBin` 方法内部打断点。
      */
-    private static void printLinkedListStructure(Map<?, ?> map) {
-        try {
-            Field tableField = HashMap.class.getDeclaredField("table");
-            tableField.setAccessible(true);
-            Object[] table = (Object[]) tableField.get(map);
-            
-            for (int i = 0; i < table.length; i++) {
-                Object node = table[i];
-                if (node == null) continue;
-                
-                StringBuilder sb = new StringBuilder();
-                sb.append("Bucket[").append(i).append("]: ");
-                
-                // 遍历链表
-                while (node != null) {
-                    // 反射获取 Key 和 Value
-                    Field keyField = node.getClass().getDeclaredField("key");
-                    Field valField = node.getClass().getDeclaredField("value");
-                    Field nextField = node.getClass().getDeclaredField("next");
-                    
-                    keyField.setAccessible(true);
-                    valField.setAccessible(true);
-                    nextField.setAccessible(true);
-                    
-                    Object key = keyField.get(node);
-                    Object val = valField.get(node);
-                    
-                    sb.append("(").append(key).append("=").append(val).append(") -> ");
-                    
-                    node = nextField.get(node);
-                }
-                sb.append("null");
-                log.info(sb.toString());
-            }
-        } catch (Exception e) {
-            log.error("打印链表结构失败", e);
+    private static void debugTreeification() {
+        log.info(">>> 2. 准备调试：树化过程 <<<");
+        Map<Object, Integer> map = new HashMap<>();
+
+        // 这里的 Key 都会发生 Hash 冲突
+        // 阈值是 8，所以前 8 个会形成链表
+        for (int i = 0; i < 8; i++) {
+            map.put(new AlwaysCollideKey(String.valueOf(i)), i);
         }
+
+        log.info("Step 3: Put 第 9 个元素 (触发树化逻辑)");
+        // 注意：treeifyBin 不一定会转红黑树，如果数组长度 < 64，它会优先扩容 (resize)。
+        // 你可以在 treeifyBin 里看到 `if (n < MIN_TREEIFY_CAPACITY) resize();`
+        map.put(new AlwaysCollideKey("Trigger"), 999); // TODO: 在此处 Debug 进入 putVal -> treeifyBin
+
+        log.info("树化调试结束");
     }
 
-    // ... (AlwaysCollideKey 和 Student 类保持不变) ...
+    /**
+     * 场景 3: 调试并发冲突 (Race Condition)
+     * <p>
+     * 目标：观察两个线程同时拿到 tab[i] 为 null，然后同时赋值，导致覆盖。
+     * <p>
+     * 【调试技巧】
+     * 这需要“多线程断点”技巧。
+     * 1. 在 HashMap.putVal 的 `if ((p = tab[i = (n - 1) & hash]) == null)` 这一行打断点。
+     * 2. 右键点击断点，Suspen Policy 选择 "Thread" (而不是 All)，这样一个线程停住不会影响另一个。
+     * 3. 启动 Debug。
+     * 4. 当 Thread-1 停在断点时，不要放行。
+     * 5. 等 Thread-2 也停在断点时（此时它们看到的 tab[i] 都是 null）。
+     * 6. 放行 Thread-1 -> 写入数据。
+     * 7. 放行 Thread-2 -> 写入数据（覆盖了 Thread-1 的数据！）。
+     */
+    private static void debugConcurrentRace() throws InterruptedException {
+        log.info(">>> 3. 准备调试：并发冲突 <<<");
+        final Map<Integer, Integer> map = new HashMap<>();
+
+        // 两个线程都 Put Key=1 (Hash 一样，Index 一样)
+        Thread t1 = new Thread(() -> {
+            log.info("Thread-1 准备 Put");
+            map.put(1, 100); // TODO: 断点 1
+            log.info("Thread-1 Put 完成");
+        }, "Thread-1");
+
+        Thread t2 = new Thread(() -> {
+            log.info("Thread-2 准备 Put");
+            map.put(1, 200); // TODO: 断点 2
+            log.info("Thread-2 Put 完成");
+        }, "Thread-2");
+
+        t1.start();
+        t2.start();
+
+        t1.join();
+        t2.join();
+
+        log.info("最终结果: {}", map.get(1)); // 如果是 200 (或 100)，说明发生了覆盖，而不是报错
+    }
+
+    // --- 辅助类 ---
     static class AlwaysCollideKey {
         String name;
-        public AlwaysCollideKey(String name) { this.name = name; }
-        @Override public String toString() { return name; } // 方便打印
-        @Override public int hashCode() { return 1; } // 固定 HashCode
-        @Override public boolean equals(Object obj) { return this.name.equals(((AlwaysCollideKey) obj).name); }
+
+        public AlwaysCollideKey(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public int hashCode() {
+            return 1;
+        } // 永远冲突
+
+        @Override
+        public boolean equals(Object obj) {
+            return this.name.equals(((AlwaysCollideKey) obj).name);
+        }
     }
-    
-    static class Student { /* ... */ }
 }
