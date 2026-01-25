@@ -47,7 +47,6 @@ public class SynchronizedDeepDive {
 
         // 稍微等子线程先启动并拿到锁
         TimeUnit.MILLISECONDS.sleep(200);
-
         System.out.println("====== 3. 正在发生竞争 (主线程来抢了...) ======");
         // 主线程也来抢，发现被占用了，只能升级为重量级锁去排队
         synchronized (lock) {
